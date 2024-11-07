@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"regexp"
+	"strconv"
 
 	lxd "github.com/canonical/lxd/client"
 	"github.com/canonical/lxd/shared/api"
@@ -56,9 +58,9 @@ func main() {
 	}
 	fmt.Println("Instance started successfully.")
 
-	// Define the command to be executed inside the container
+	// Define the command to get the Docker group ID inside the container
 	execReq := api.InstanceExecPost{
-		Command:     []string{"echo", "Hello from inside the container"},
+		Command:     []string{"getent", "group", "docker"},
 		WaitForWS:   true,
 		Interactive: false,
 	}
@@ -82,7 +84,31 @@ func main() {
 		log.Fatalf("Failed to wait for command execution: %v", err)
 	}
 
-	// Output captured results from stdout and stderr
-	fmt.Printf("Command stdout: %s\n", stdoutBuf.String())
-	fmt.Printf("Command stderr: %s\n", stderrBuf.String())
+	// Parse the output to extract the Docker group ID
+	groupID, err := parseDockerGroupID(stdoutBuf.String())
+	if err != nil {
+		log.Fatalf("Failed to parse Docker group ID: %v", err)
+	}
+
+	fmt.Printf("Docker group ID: %d\n", groupID)
+}
+
+// parseDockerGroupID parses the group ID from the `getent group docker` output
+func parseDockerGroupID(output string) (uint32, error) {
+	// Define the regular expression to match the group ID
+	re := regexp.MustCompile(`^docker:x:(\d+):`)
+	matches := re.FindStringSubmatch(output)
+
+	// Check if the group ID was captured
+	if len(matches) < 2 {
+		return 0, fmt.Errorf("invalid output format from 'getent group docker': %s", output)
+	}
+
+	// Convert the captured group ID to uint32
+	groupID, err := strconv.ParseUint(matches[1], 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("failed to convert group ID to uint32: %v", err)
+	}
+
+	return uint32(groupID), nil
 }
